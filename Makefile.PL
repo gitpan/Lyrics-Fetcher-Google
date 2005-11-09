@@ -4,12 +4,14 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     NAME         => 'Lyrics::Fetcher::Google',
     AUTHOR       => 'John Lifsey <nebulous@crashed.net>',
+    VERSION	 => '0.02',    
     PREREQ_PM    => {
                      'Test::Simple' => 0.44,
                      'Lyrics::Fetcher' => '0.3.1',
                      'Net::Google' => '0.53',
                      'LWP::UserAgent' => undef,
                      'HTML::LinkExtractor' => undef,
+                     'HTML::TokeParser::Simple' => undef,
                      'String::Similarity' => undef,
                     },
 );

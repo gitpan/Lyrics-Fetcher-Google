@@ -1,100 +1,102 @@
 package Lyrics::Fetcher::Google;
 use strict;
+use warnings;
+use Exporter;
 use Net::Google;
 use LWP::UserAgent;
-use HTML::LinkExtractor;
 use String::Similarity;
+use HTML::LinkExtractor;
+use HTML::TokeParser::Simple;
 
-my $Lyrics::Fetcher::Google::VERSION = '0.01';
+our @ISA = qw(Exporter);
+our $VERSION = '0.02';
+
+use constant MIN_STRING_LENGTH    => 200;
+use constant MAX_BLOCKS_TO_SEARCH => 4;
 
 my ($class) = @_;
-my $ua = new LWP::UserAgent;
-my $lx = new HTML::LinkExtractor;
+my $ua      = new LWP::UserAgent;
+my $lx      = new HTML::LinkExtractor;
 $Lyrics::Fetcher::Error = 'OK';
 
-
 sub fetch($$$) {
-  my $self = shift;
-  my ($artist, $song) = @_;
-  my @links = &links($artist, $song);
+    my $self = shift;
+    my ( $artist, $song ) = @_;
+    my @links = &links( $artist, $song );
 
-  $Lyrics::Fetcher::Error = "Could not get any results from google. Did you supply a gid?" unless (@links);
+    $Lyrics::Fetcher::Error =
+      "Could not get any results from google. Did you supply a gid?"
+      unless (@links);
 
-  my $totaltext;
+    my $totaltext;
 
-  foreach my $link (@links) {
-    $totaltext.=&get($link);
-  }
-  my @biggest = &biggest_blocks($totaltext, 3);
-  my %songs = &most_similar(@biggest);
+    foreach my $link (@links) {
+        $totaltext .= &get($link);
+    }
 
-  #@results contains multiple entries. Only the first(highest weighted) entry is returned.
-  my @results = sort { $songs{$b} <=> $songs{$a} } keys %songs;
-  $results[1].="AASDFASD";
-  return shift(@results); 
+    my @biggest = &biggest_blocks($totaltext);
+    my %songs   = &most_similar( splice( @biggest, 0, MAX_BLOCKS_TO_SEARCH ) );
+
+#@results contains multiple entries. Only the first(highest weighted) entry is returned.
+    my @results = sort { $songs{$b} <=> $songs{$a} } keys %songs;
+    return shift(@results);
 }
 
 sub links {
-  my ($artist, $song) = @_;
-  my $google = Net::Google->new(key=>$Lyrics::Fetcher::gid);
-  my $search = $google->search();
-  $search->max_results(5);
-  $search->query($artist,$song,'lyrics');
-  return map { $_ = $_->{__URL}} @{$search->results()};
-}
-
-
-sub links_unethical {
-  my ($artist,$song) = @_;
-  $ua->agent("Mozilla/5.0 (Macintosh; U; PPC Mac OS X Mach-O; en-US; rv:1.6) Gecko/20040206 Firefox/0.8");
-  $lx->parse(\&get("http://www.google.com/search?hl=en&lr=&ie=UTF-8&q=lyrics+%22$artist%22%20%22$song%22&btnG=Search"));
-    my @links;
-    foreach my $link (@{$lx->links}) {
-      if ($link->{href}) {
-        if ($link->{href} !~ /(google|cache)/i) {
-          if ($link->{href} !~ /^\//) {
-            push(@links,$link->{href});
-          }
-        }
-      }
-    }
-    return @links;
+    my ( $artist, $song ) = @_;
+    my $google = Net::Google->new( key => $Lyrics::Fetcher::gid );
+    my $search = $google->search();
+    $search->max_results(5);
+    $search->query( $artist, $song, 'lyrics' );
+    return map { $_ = $_->{__URL} } @{ $search->results() };
 }
 
 sub get {
-  my ($url) = @_;
-  $ua->timeout(6);
-  $ua->agent("Mozilla/5.0");
-  my $res = $ua->get($url);
-  if ($res->is_success) {
-    return $res->content;
-  }
+    my ($url) = @_;
+    $ua->timeout(6);
+    $ua->agent("Mozilla/5.0");
+    my $res = $ua->get($url);
+    if ( $res->is_success ) {
+        return $res->content;
+    }
 }
 
 sub biggest_blocks {
-  my ($html, $num) = @_;
-  $html =~ s/<script.*?>.*?<\/script>//sig;
-  $html =~ s/<body.*?>(.*)?<\/body>/$1/sig;
-  $html =~ s/{(.*)?}/$1/sig;
-  $html =~ s/<\!--[^>]*//sig;
-  $html =~ s/<\s*?(p|br|i|b|a)\s*.*?>//sig;
-  my @blocks = split(/<.*?>/, $html);
-  @blocks = sort { length $b <=> length $a } @blocks;
-  @blocks = splice(@blocks,0,$num);
-  return @blocks;
+    my ($html) = @_;
+    my $p      = HTML::TokeParser::Simple->new( \$html );
+    my @blocks = ();
+
+    my $tc = '';
+    while ( my $token = $p->get_token ) {
+
+        if ( $token->is_tag('br') ) { $tc .= "\n"; next; }
+
+        if ( $token->is_text ) {
+            my $t = $token->as_is;
+            $t =~ s/\&\#\d+\;//gs;
+            $t =~ s/<\/*.*?>//gs;
+            $t =~ s/([a-z])([A-Z])/$1\n$2/gs;
+            $t =~ s/\s+/ /gs;
+            $tc .= " $t";
+        }
+        else {
+            push( @blocks, $tc ) if ( length($tc) > MIN_STRING_LENGTH );
+            $tc = '';
+        }
+    }
+    return sort { length $b <=> length $a } @blocks;
 }
 
 sub most_similar {
-  my (@strings) = @_;
-  my %rank;
-  foreach my $outside (@strings) {
-    foreach my $inside (@strings) {
-      $rank{$outside} += similarity($outside, $inside);
+    my (@strings) = @_;
+    my %rank;
+    foreach my $outside (@strings) {
+        foreach my $inside (@strings) {
+            $rank{$outside} += similarity( $outside, $inside );
+        }
     }
-  }
-  return %rank;
+    return %rank;
 }
-
 
 1;
 
